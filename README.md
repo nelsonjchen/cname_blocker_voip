@@ -51,7 +51,9 @@ LOG_ANSI=false
 LOG_TIMESTAMPS=false
 ```
 
-`BLOCK_CNAME_PATTERNS` is a comma-separated, case-insensitive substring list. For local or live testing with your name:
+`BLOCK_CNAME_PATTERNS` is a comma-separated, case-insensitive token list. Patterns match on non-alphanumeric boundaries, so `pch` matches `PCH` and `PCH-CLAIMS` but not `Kupchak`.
+
+For local or live testing with your name:
 
 ```sh
 BLOCK_CNAME_PATTERNS=nelson
