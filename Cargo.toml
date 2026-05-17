@@ -1,0 +1,17 @@
+[package]
+name = "cname-blocker-voip"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+ctrlc = "3"
+hound = "3"
+ogg-opus = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+xphone = "0.6"
+
+[dev-dependencies]
+crossbeam-channel = "0.5"
+fakepbx = "0.2"
