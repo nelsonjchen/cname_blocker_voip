@@ -46,7 +46,7 @@ NAT_KEEPALIVE_SECS=15
 REGISTER_EXPIRY_SECS=60
 REGISTER_RETRY_SECS=5
 REGISTER_MAX_RETRY=3
-RUST_LOG=info
+RUST_LOG=info,xphone::sip::client=warn,xphone::phone=warn
 ```
 
 `BLOCK_CNAME_PATTERNS` is a comma-separated, case-insensitive substring list. For local or live testing with your name:

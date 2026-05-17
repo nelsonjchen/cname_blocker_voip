@@ -8,6 +8,8 @@ fn main() -> Result<()> {
     load_dotenv()?;
 
     tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
         .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse()?))
         .init();
 
