@@ -5,6 +5,8 @@ use cname_blocker_voip::{AppConfig, blocker};
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
+
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive("info".parse()?))
         .init();

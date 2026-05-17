@@ -27,6 +27,13 @@ VOIPMS_PASSWORD=your-subaccount-password
 VOIPMS_HOST=losangeles1.voip.ms
 ```
 
+For local testing, copy the template, edit it, and run:
+
+```sh
+cp .env.example .env
+cargo run
+```
+
 Useful optional variables:
 
 ```sh

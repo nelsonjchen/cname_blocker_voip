@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1"
 ctrlc = "3"
+dotenvy = "0.15"
 hound = "3"
 ogg-opus = "0.1"
 tracing = "0.1"
