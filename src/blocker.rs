@@ -116,7 +116,7 @@ impl CallFacts {
 pub fn run(config: AppConfig, shutdown: impl FnOnce() + Send + 'static) -> Result<()> {
     let audio = DisconnectAudio::load(config.message_audio.as_deref())?;
     let blocker = CnameBlocker::new(config.block_patterns.clone(), audio);
-    let phone = Phone::new(config.xphone_config());
+    let phone = Phone::new(config.xphone_config()?);
     blocker.install_on(&phone);
 
     phone.on_registered(|| {

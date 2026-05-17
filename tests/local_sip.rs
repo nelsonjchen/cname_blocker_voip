@@ -27,7 +27,7 @@ fn connect_blocker(pbx: &FakePBX) -> Phone {
     let config = phone_config(pbx);
     let audio = DisconnectAudio::load(None).unwrap();
     let blocker = CnameBlocker::new(config.block_patterns.clone(), audio);
-    let phone = Phone::new(config.xphone_config());
+    let phone = Phone::new(config.xphone_config().unwrap());
 
     let (registered_tx, registered_rx) = crossbeam_channel::bounded(1);
     phone.on_registered(move || {

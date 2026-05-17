@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::net::{IpAddr, ToSocketAddrs};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -39,7 +40,7 @@ impl AppConfig {
         let rtp_port_max = parse_or(&lookup, "RTP_PORT_MAX", 0)?;
         let register_expiry = Duration::from_secs(parse_or(&lookup, "REGISTER_EXPIRY_SECS", 60)?);
         let register_retry = Duration::from_secs(parse_or(&lookup, "REGISTER_RETRY_SECS", 5)?);
-        let register_max_retry = parse_or(&lookup, "REGISTER_MAX_RETRY", 0)?;
+        let register_max_retry = parse_or(&lookup, "REGISTER_MAX_RETRY", 3)?;
         let nat_keepalive_interval = parse_optional_secs(&lookup, "NAT_KEEPALIVE_SECS")?;
         let nat = parse_bool(lookup("SIP_NAT").as_deref()).unwrap_or(true);
 
@@ -67,12 +68,13 @@ impl AppConfig {
         })
     }
 
-    pub fn xphone_config(&self) -> xphone::Config {
-        xphone::Config {
+    pub fn xphone_config(&self) -> Result<xphone::Config> {
+        let (host, port) = self.resolve_sip_server()?;
+        Ok(xphone::Config {
             username: self.username.clone(),
             password: self.password.clone(),
-            host: self.host.clone(),
-            port: self.port,
+            host,
+            port,
             register_expiry: self.register_expiry,
             register_retry: self.register_retry,
             register_max_retry: self.register_max_retry,
@@ -82,7 +84,21 @@ impl AppConfig {
             rtp_port_max: self.rtp_port_max,
             user_agent: concat!("cname-blocker-voip/", env!("CARGO_PKG_VERSION")).into(),
             ..xphone::Config::default()
+        })
+    }
+
+    fn resolve_sip_server(&self) -> Result<(String, u16)> {
+        if self.host.parse::<IpAddr>().is_ok() {
+            return Ok((self.host.clone(), self.port));
         }
+
+        let mut addrs = (self.host.as_str(), self.port)
+            .to_socket_addrs()
+            .with_context(|| format!("failed to resolve VOIPMS_HOST={}", self.host))?;
+        let addr = addrs
+            .next()
+            .with_context(|| format!("VOIPMS_HOST={} resolved to no addresses", self.host))?;
+        Ok((addr.ip().to_string(), addr.port()))
     }
 }
 
