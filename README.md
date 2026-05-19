@@ -40,6 +40,9 @@ Useful optional variables:
 VOIPMS_PORT=5060
 BLOCK_CNAME_PATTERNS=pch
 BLOCK_CNAME_REGEXES=[[:alpha:]] CA$
+TWILIO_API_KEY_SID=SKxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_API_KEY_SECRET=replace-me
+TWILIO_LOOKUP_TIMEOUT_MS=1500
 BLOCKER_MESSAGE_AUDIO=/path/to/message.ogg
 RTP_PORT_MIN=30000
 RTP_PORT_MAX=30100
@@ -55,6 +58,8 @@ LOG_TIMESTAMPS=false
 `BLOCK_CNAME_PATTERNS` is a comma-separated, case-insensitive token list. Patterns match on non-alphanumeric boundaries, so `pch` matches `PCH` and `PCH-CLAIMS` but not `Kupchak`.
 
 `BLOCK_CNAME_REGEXES` is an optional comma-separated list of case-insensitive Rust regexes matched against caller name and SIP `From` headers. For example, `[[:alpha:]] CA$` blocks city/state CNAM values ending in a letter, a space, and `CA`, such as `UPLAND CA`, `BREA CA`, or `ONTARIO CA`.
+
+When `TWILIO_API_KEY_SID` and `TWILIO_API_KEY_SECRET` are both set, the blocker looks up the caller name with Twilio Lookup v2 (`Fields=caller_name`) and matches against that result instead of the upstream SIP/VoIP.ms CNAME. If Twilio returns no caller name or the lookup fails, the call is allowed to cascade.
 
 For local or live testing with your name:
 

@@ -5,6 +5,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
+use crate::twilio::TwilioLookupConfig;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
     pub username: String,
@@ -21,6 +23,7 @@ pub struct AppConfig {
     pub register_max_retry: u32,
     pub nat_keepalive_interval: Option<Duration>,
     pub nat: bool,
+    pub twilio_lookup: Option<TwilioLookupConfig>,
 }
 
 impl AppConfig {
@@ -44,6 +47,7 @@ impl AppConfig {
         let register_max_retry = parse_or(&lookup, "REGISTER_MAX_RETRY", 3)?;
         let nat_keepalive_interval = parse_optional_secs(&lookup, "NAT_KEEPALIVE_SECS")?;
         let nat = parse_bool(lookup("SIP_NAT").as_deref()).unwrap_or(true);
+        let twilio_lookup = parse_twilio_lookup(&lookup)?;
 
         if (rtp_port_min == 0) != (rtp_port_max == 0) {
             bail!("RTP_PORT_MIN and RTP_PORT_MAX must be set together or both omitted");
@@ -67,6 +71,7 @@ impl AppConfig {
             register_max_retry,
             nat_keepalive_interval,
             nat,
+            twilio_lookup,
         })
     }
 
@@ -101,6 +106,24 @@ impl AppConfig {
             .next()
             .with_context(|| format!("VOIPMS_HOST={} resolved to no addresses", self.host))?;
         Ok((addr.ip().to_string(), addr.port()))
+    }
+}
+
+fn parse_twilio_lookup<F>(lookup: &F) -> Result<Option<TwilioLookupConfig>>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let api_key_sid = lookup("TWILIO_API_KEY_SID").filter(|v| !v.trim().is_empty());
+    let api_key_secret = lookup("TWILIO_API_KEY_SECRET").filter(|v| !v.trim().is_empty());
+
+    match (api_key_sid, api_key_secret) {
+        (Some(api_key_sid), Some(api_key_secret)) => Ok(Some(TwilioLookupConfig {
+            api_key_sid,
+            api_key_secret,
+            timeout: Duration::from_millis(parse_or(lookup, "TWILIO_LOOKUP_TIMEOUT_MS", 1500)?),
+        })),
+        (None, None) => Ok(None),
+        _ => bail!("TWILIO_API_KEY_SID and TWILIO_API_KEY_SECRET must be set together"),
     }
 }
 
@@ -205,7 +228,36 @@ mod tests {
         assert_eq!(config.port, 5060);
         assert_eq!(config.block_patterns, vec!["pch"]);
         assert!(config.block_regexes.is_empty());
+        assert!(config.twilio_lookup.is_none());
         assert_eq!(config.nat_keepalive_interval, Some(Duration::from_secs(15)));
+    }
+
+    #[test]
+    fn parses_twilio_lookup_credentials() {
+        let config = config_with(&[
+            ("TWILIO_API_KEY_SID", "SK123"),
+            ("TWILIO_API_KEY_SECRET", "secret"),
+            ("TWILIO_LOOKUP_TIMEOUT_MS", "2500"),
+        ]);
+        let lookup = config.twilio_lookup.unwrap();
+        assert_eq!(lookup.api_key_sid, "SK123");
+        assert_eq!(lookup.timeout, Duration::from_millis(2500));
+    }
+
+    #[test]
+    fn rejects_partial_twilio_lookup_credentials() {
+        let mut map = HashMap::from([
+            ("VOIPMS_USER", "123456_blocker"),
+            ("VOIPMS_PASSWORD", "secret"),
+            ("VOIPMS_HOST", "losangeles1.voip.ms"),
+            ("TWILIO_API_KEY_SID", "SK123"),
+        ]);
+        let err = AppConfig::from_lookup(lookup_from_map(map.clone())).unwrap_err();
+        assert!(err.to_string().contains("TWILIO_API_KEY_SID"));
+        map.remove("TWILIO_API_KEY_SID");
+        map.insert("TWILIO_API_KEY_SECRET", "secret");
+        let err = AppConfig::from_lookup(lookup_from_map(map)).unwrap_err();
+        assert!(err.to_string().contains("TWILIO_API_KEY_SID"));
     }
 
     #[test]

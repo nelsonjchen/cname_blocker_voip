@@ -2,6 +2,7 @@ pub mod audio;
 pub mod blocker;
 pub mod config;
 pub mod matcher;
+pub mod twilio;
 
 pub use audio::DisconnectAudio;
 pub use blocker::{CallDecision, CallFacts, CnameBlocker};

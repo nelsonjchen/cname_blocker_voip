@@ -9,6 +9,7 @@ use xphone::{Call, Phone};
 use crate::audio::DisconnectAudio;
 use crate::config::AppConfig;
 use crate::matcher::PatternMatcher;
+use crate::twilio::TwilioLookup;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallDecision {
@@ -19,13 +20,23 @@ pub enum CallDecision {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallFacts {
     pub caller_name: String,
+    pub caller_number: String,
     pub from_headers: Vec<String>,
+    pub name_source: CallerNameSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallerNameSource {
+    Sip,
+    Twilio,
+    TwilioUnavailable,
 }
 
 #[derive(Clone)]
 pub struct CnameBlocker {
     matcher: PatternMatcher,
     audio: DisconnectAudio,
+    twilio_lookup: Option<TwilioLookup>,
 }
 
 impl CnameBlocker {
@@ -39,11 +50,23 @@ impl CnameBlocker {
         audio: DisconnectAudio,
     ) -> Result<Self> {
         let matcher = PatternMatcher::try_new(patterns, regexes)?;
-        Ok(Self { matcher, audio })
+        Ok(Self {
+            matcher,
+            audio,
+            twilio_lookup: None,
+        })
     }
 
-    fn from_matcher(matcher: PatternMatcher, audio: DisconnectAudio) -> Self {
-        Self { matcher, audio }
+    fn from_matcher(
+        matcher: PatternMatcher,
+        audio: DisconnectAudio,
+        twilio_lookup: Option<TwilioLookup>,
+    ) -> Self {
+        Self {
+            matcher,
+            audio,
+            twilio_lookup,
+        }
     }
 
     pub fn decision(&self, facts: &CallFacts) -> CallDecision {
@@ -66,11 +89,13 @@ impl CnameBlocker {
     }
 
     fn handle_call(&self, call: Arc<Call>) {
-        let facts = CallFacts::from_call(&call);
+        let facts = self.call_facts(&call);
         match self.decision(&facts) {
             CallDecision::Block => {
                 info!(
                     caller_name = %facts.caller_name,
+                    caller_number = %facts.caller_number,
+                    source = ?facts.name_source,
                     from = ?facts.from_headers,
                     "blocking call by CNAME"
                 );
@@ -81,11 +106,56 @@ impl CnameBlocker {
             CallDecision::Cascade => {
                 info!(
                     caller_name = %facts.caller_name,
+                    caller_number = %facts.caller_number,
+                    source = ?facts.name_source,
                     from = ?facts.from_headers,
                     "non-matching call; returning 486 Busy Here for call hunting"
                 );
                 if let Err(err) = call.reject(486, "Busy Here") {
                     warn!(error = %err, "failed to reject non-matching call");
+                }
+            }
+        }
+    }
+
+    fn call_facts(&self, call: &Call) -> CallFacts {
+        let upstream = CallFacts::from_call(call);
+        let Some(twilio_lookup) = &self.twilio_lookup else {
+            return upstream;
+        };
+
+        match twilio_lookup.lookup_caller_name(&upstream.caller_number) {
+            Ok(Some(caller_name)) => CallFacts {
+                caller_name,
+                caller_number: upstream.caller_number,
+                from_headers: Vec::new(),
+                name_source: CallerNameSource::Twilio,
+            },
+            Ok(None) => {
+                warn!(
+                    caller_number = %upstream.caller_number,
+                    upstream_caller_name = %upstream.caller_name,
+                    "Twilio Lookup returned no caller name; not using upstream CNAME for matching"
+                );
+                CallFacts {
+                    caller_name: String::new(),
+                    caller_number: upstream.caller_number,
+                    from_headers: Vec::new(),
+                    name_source: CallerNameSource::TwilioUnavailable,
+                }
+            }
+            Err(err) => {
+                warn!(
+                    caller_number = %upstream.caller_number,
+                    upstream_caller_name = %upstream.caller_name,
+                    error = %err,
+                    "Twilio Lookup failed; not using upstream CNAME for matching"
+                );
+                CallFacts {
+                    caller_name: String::new(),
+                    caller_number: upstream.caller_number,
+                    from_headers: Vec::new(),
+                    name_source: CallerNameSource::TwilioUnavailable,
                 }
             }
         }
@@ -118,7 +188,9 @@ impl CallFacts {
     pub fn from_call(call: &Call) -> Self {
         Self {
             caller_name: call.from_name(),
+            caller_number: call.from(),
             from_headers: call.header("From"),
+            name_source: CallerNameSource::Sip,
         }
     }
 }
@@ -127,7 +199,12 @@ pub fn run(config: AppConfig, shutdown: impl FnOnce() + Send + 'static) -> Resul
     let audio = DisconnectAudio::load(config.message_audio.as_deref())?;
     let matcher =
         PatternMatcher::try_new(config.block_patterns.clone(), config.block_regexes.clone())?;
-    let blocker = CnameBlocker::from_matcher(matcher, audio);
+    let twilio_lookup = config
+        .twilio_lookup
+        .clone()
+        .map(TwilioLookup::new)
+        .transpose()?;
+    let blocker = CnameBlocker::from_matcher(matcher, audio, twilio_lookup);
     let phone = Phone::new(config.xphone_config()?);
     blocker.install_on(&phone);
 
@@ -156,7 +233,9 @@ mod tests {
         let blocker = CnameBlocker::new(vec!["nelson".into()], audio);
         let facts = CallFacts {
             caller_name: "Nelson".into(),
+            caller_number: "+15551212".into(),
             from_headers: vec![],
+            name_source: CallerNameSource::Sip,
         };
         assert_eq!(blocker.decision(&facts), CallDecision::Block);
     }
@@ -167,7 +246,9 @@ mod tests {
         let blocker = CnameBlocker::new(vec!["pch".into()], audio);
         let facts = CallFacts {
             caller_name: "Nelson".into(),
+            caller_number: "+15551212".into(),
             from_headers: vec!["\"Nelson\" <sip:+15551212@example.test>".into()],
+            name_source: CallerNameSource::Sip,
         };
         assert_eq!(blocker.decision(&facts), CallDecision::Cascade);
     }
