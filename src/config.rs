@@ -12,6 +12,7 @@ pub struct AppConfig {
     pub host: String,
     pub port: u16,
     pub block_patterns: Vec<String>,
+    pub block_regexes: Vec<String>,
     pub message_audio: Option<String>,
     pub rtp_port_min: u16,
     pub rtp_port_max: u16,
@@ -57,6 +58,7 @@ impl AppConfig {
             host,
             port,
             block_patterns: parse_patterns(lookup("BLOCK_CNAME_PATTERNS").as_deref()),
+            block_regexes: parse_list(lookup("BLOCK_CNAME_REGEXES").as_deref()),
             message_audio: lookup("BLOCKER_MESSAGE_AUDIO").filter(|v| !v.trim().is_empty()),
             rtp_port_min,
             rtp_port_max,
@@ -160,10 +162,9 @@ fn parse_bool(value: Option<&str>) -> Option<bool> {
 
 pub fn parse_patterns(value: Option<&str>) -> Vec<String> {
     let source = value.unwrap_or("pch");
-    let patterns = source
-        .split(',')
-        .map(|pattern| pattern.trim().to_ascii_lowercase())
-        .filter(|pattern| !pattern.is_empty())
+    let patterns = parse_list(Some(source))
+        .into_iter()
+        .map(|pattern| pattern.to_ascii_lowercase())
         .collect::<Vec<_>>();
 
     if patterns.is_empty() {
@@ -171,6 +172,15 @@ pub fn parse_patterns(value: Option<&str>) -> Vec<String> {
     } else {
         patterns
     }
+}
+
+pub fn parse_list(value: Option<&str>) -> Vec<String> {
+    value
+        .unwrap_or_default()
+        .split(',')
+        .map(|pattern| pattern.trim().to_string())
+        .filter(|pattern| !pattern.is_empty())
+        .collect::<Vec<_>>()
 }
 
 #[cfg(test)]
@@ -194,6 +204,7 @@ mod tests {
         let config = config_with(&[]);
         assert_eq!(config.port, 5060);
         assert_eq!(config.block_patterns, vec!["pch"]);
+        assert!(config.block_regexes.is_empty());
         assert_eq!(config.nat_keepalive_interval, Some(Duration::from_secs(15)));
     }
 
@@ -201,6 +212,12 @@ mod tests {
     fn parses_case_insensitive_pattern_list() {
         let config = config_with(&[("BLOCK_CNAME_PATTERNS", " Nelson, PCH ,,")]);
         assert_eq!(config.block_patterns, vec!["nelson", "pch"]);
+    }
+
+    #[test]
+    fn parses_case_sensitive_regex_list_without_lowercasing() {
+        let config = config_with(&[("BLOCK_CNAME_REGEXES", r"[[:alpha:]] CA$, ^PCH\\b ,,")]);
+        assert_eq!(config.block_regexes, vec![r"[[:alpha:]] CA$", r"^PCH\\b"]);
     }
 
     #[test]

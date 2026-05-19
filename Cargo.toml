@@ -9,6 +9,7 @@ ctrlc = "3"
 dotenvy = "0.15"
 hound = "3"
 ogg-opus = "0.1"
+regex = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 xphone = "0.6"

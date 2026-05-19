@@ -1,16 +1,44 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
+use anyhow::{Context, Result};
+use regex::{Regex, RegexBuilder};
+
+#[derive(Debug, Clone)]
 pub struct PatternMatcher {
     patterns: Vec<String>,
+    regex_sources: Vec<String>,
+    regexes: Vec<Regex>,
 }
 
 impl PatternMatcher {
     pub fn new(patterns: Vec<String>) -> Self {
+        Self::try_new(patterns, vec![]).expect("empty regex list must compile")
+    }
+
+    pub fn try_new(patterns: Vec<String>, regexes: Vec<String>) -> Result<Self> {
         let patterns = patterns
             .into_iter()
             .map(|pattern| pattern.trim().to_ascii_lowercase())
             .filter(|pattern| !pattern.is_empty())
             .collect::<Vec<_>>();
-        Self { patterns }
+        let regex_sources = regexes
+            .into_iter()
+            .map(|pattern| pattern.trim().to_string())
+            .filter(|pattern| !pattern.is_empty())
+            .collect::<Vec<_>>();
+        let regexes = regex_sources
+            .iter()
+            .map(|pattern| {
+                RegexBuilder::new(pattern)
+                    .case_insensitive(true)
+                    .build()
+                    .with_context(|| format!("invalid BLOCK_CNAME_REGEXES pattern: {pattern}"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(Self {
+            patterns,
+            regex_sources,
+            regexes,
+        })
     }
 
     pub fn is_match(&self, caller_name: &str, from_headers: &[String]) -> bool {
@@ -25,11 +53,17 @@ impl PatternMatcher {
                 || headers
                     .iter()
                     .any(|header| contains_token_pattern(header, pattern))
+        }) || self.regexes.iter().any(|pattern| {
+            pattern.is_match(&caller_name) || headers.iter().any(|header| pattern.is_match(header))
         })
     }
 
     pub fn patterns(&self) -> &[String] {
         &self.patterns
+    }
+
+    pub fn regex_patterns(&self) -> &[String] {
+        &self.regex_sources
     }
 }
 
@@ -103,5 +137,34 @@ mod tests {
         assert!(matcher.is_match("THE PUBLISHERS CLEARING HOUSE DEPT", &[]));
         assert!(!matcher.is_match("xpublishers clearing house", &[]));
         assert!(!matcher.is_match("publishers clearing housex", &[]));
+    }
+
+    #[test]
+    fn regex_patterns_match_case_insensitively() {
+        let matcher = PatternMatcher::try_new(vec![], vec![r"[[:alpha:]] CA$".into()]).unwrap();
+        assert!(matcher.is_match("UPLAND CA", &[]));
+        assert!(matcher.is_match("Brea ca", &[]));
+        assert!(matcher.is_match("ONTARIO CA", &[]));
+        assert!(!matcher.is_match("CA", &[]));
+        assert!(!matcher.is_match("UPLAND NY", &[]));
+        assert!(!matcher.is_match("PCH CLAIMS", &[]));
+    }
+
+    #[test]
+    fn regex_patterns_match_from_header_text() {
+        let matcher = PatternMatcher::try_new(vec![], vec![r#""[[:alpha:]]+ CA""#.into()]).unwrap();
+        assert!(matcher.is_match(
+            "",
+            &["\"UPLAND CA\" <sip:+19093604678@example.test>".into()]
+        ));
+    }
+
+    #[test]
+    fn invalid_regexes_return_errors() {
+        let err = PatternMatcher::try_new(vec![], vec!["(".into()]).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("invalid BLOCK_CNAME_REGEXES pattern")
+        );
     }
 }

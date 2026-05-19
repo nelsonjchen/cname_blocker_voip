@@ -39,6 +39,7 @@ Useful optional variables:
 ```sh
 VOIPMS_PORT=5060
 BLOCK_CNAME_PATTERNS=pch
+BLOCK_CNAME_REGEXES=[[:alpha:]] CA$
 BLOCKER_MESSAGE_AUDIO=/path/to/message.ogg
 RTP_PORT_MIN=30000
 RTP_PORT_MAX=30100
@@ -52,6 +53,8 @@ LOG_TIMESTAMPS=false
 ```
 
 `BLOCK_CNAME_PATTERNS` is a comma-separated, case-insensitive token list. Patterns match on non-alphanumeric boundaries, so `pch` matches `PCH` and `PCH-CLAIMS` but not `Kupchak`.
+
+`BLOCK_CNAME_REGEXES` is an optional comma-separated list of case-insensitive Rust regexes matched against caller name and SIP `From` headers. For example, `[[:alpha:]] CA$` blocks city/state CNAM values ending in a letter, a space, and `CA`, such as `UPLAND CA`, `BREA CA`, or `ONTARIO CA`.
 
 For local or live testing with your name:
 

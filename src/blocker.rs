@@ -30,10 +30,20 @@ pub struct CnameBlocker {
 
 impl CnameBlocker {
     pub fn new(patterns: Vec<String>, audio: DisconnectAudio) -> Self {
-        Self {
-            matcher: PatternMatcher::new(patterns),
-            audio,
-        }
+        Self::try_new(patterns, vec![], audio).expect("empty regex list must compile")
+    }
+
+    pub fn try_new(
+        patterns: Vec<String>,
+        regexes: Vec<String>,
+        audio: DisconnectAudio,
+    ) -> Result<Self> {
+        let matcher = PatternMatcher::try_new(patterns, regexes)?;
+        Ok(Self { matcher, audio })
+    }
+
+    fn from_matcher(matcher: PatternMatcher, audio: DisconnectAudio) -> Self {
+        Self { matcher, audio }
     }
 
     pub fn decision(&self, facts: &CallFacts) -> CallDecision {
@@ -115,7 +125,9 @@ impl CallFacts {
 
 pub fn run(config: AppConfig, shutdown: impl FnOnce() + Send + 'static) -> Result<()> {
     let audio = DisconnectAudio::load(config.message_audio.as_deref())?;
-    let blocker = CnameBlocker::new(config.block_patterns.clone(), audio);
+    let matcher =
+        PatternMatcher::try_new(config.block_patterns.clone(), config.block_regexes.clone())?;
+    let blocker = CnameBlocker::from_matcher(matcher, audio);
     let phone = Phone::new(config.xphone_config()?);
     blocker.install_on(&phone);
 
