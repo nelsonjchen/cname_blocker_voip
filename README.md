@@ -9,13 +9,65 @@ No inbound router port forwarding is required.
 
 ## VoIP.ms Setup
 
+The blocker is designed to sit in front of your normal phone path as the first
+member of a VoIP.ms Call Hunting group. It should be the first endpoint that gets
+offered the call, but it should only answer calls that match your block list.
+
 1. Create a dedicated SIP subaccount for this daemon.
-2. Create a Call Hunting entry with Ring Order set to Follow Order.
-3. Add the blocker subaccount first.
-4. Add your real phone, existing subaccount, or existing ring group second.
-5. Route the DID to that Call Hunting entry.
+   - Give it a boring internal name like `cname-blocker`.
+   - Use those credentials for `VOIPMS_USER` and `VOIPMS_PASSWORD`.
+   - Register it to the same VoIP.ms POP you normally use, such as
+     `losangeles1.voip.ms`.
+2. Create a Call Hunting entry.
+   - Set Ring Order to Follow Order.
+   - Disable any mode that rings all destinations at once.
+   - Keep the blocker first in the ordered list.
+3. Add the blocker subaccount as the first call hunting member.
+   - It only needs a short ring time because it decides immediately.
+   - It does not need voicemail or any public inbound port forwarding.
+4. Add your real destination second.
+   - This can be your normal SIP subaccount, a ring group, forwarding target, or
+     whatever already receives your calls.
+5. Route the DID to the Call Hunting entry.
+   - In DID routing, send the number to the new hunting group instead of directly
+     to your phone/ring group.
 
 With this order, normal calls receive `486 Busy Here` from the blocker and continue to your real phone. Matching calls are answered by the blocker, so the hunt stops before your phone rings.
+
+### Why This Works
+
+For non-matching calls, the blocker intentionally rejects the INVITE with:
+
+```text
+486 Busy Here
+```
+
+VoIP.ms treats that as "try the next call hunting member", so the call continues
+to your real phone path.
+
+For matching calls, the blocker answers the call, plays the disconnected audio,
+then hangs up. Because the call was answered, VoIP.ms does not continue to the
+next hunting member.
+
+### Suggested First Test
+
+Before using a production block pattern, temporarily block something you can
+generate yourself:
+
+```sh
+BLOCK_CNAME_PATTERNS=yourname
+```
+
+Call the DID from a number whose caller name contains that value. You should hear
+the blocker audio and your real phone should not ring. Then call from a
+non-matching caller name; the blocker should return `486 Busy Here` and your real
+phone should ring through the next call hunting member.
+
+After testing, switch back to your real pattern list, for example:
+
+```sh
+BLOCK_CNAME_PATTERNS=pch
+```
 
 ## Configuration
 
